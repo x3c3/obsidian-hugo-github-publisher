@@ -1,0 +1,8 @@
+main.js
+*.js.map
+node_modules/
+.obsidian/*
+!.obsidian/plugins/
+!.obsidian/community-plugins.json
+!.obsidian/core-plugins.json
+.obsidian/plugins/github-publisher/data.json

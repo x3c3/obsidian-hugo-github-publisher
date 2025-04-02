@@ -1,0 +1,114 @@
+/* GitHub Publisher Plugin Styles */
+
+/* General styles */
+.github-publisher-preview {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--background-modifier-border);
+  padding: 10px;
+  margin-bottom: 10px;
+  border-radius: 4px;
+}
+
+.github-publisher-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* Note list in preview/modal */
+.github-publisher-note-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.github-publisher-header {
+  font-weight: bold;
+  border-bottom: 2px solid var(--background-modifier-border);
+}
+
+.github-publisher-note-name {
+  flex: 2;
+}
+
+.github-publisher-note-status {
+  flex: 1;
+  text-align: center;
+}
+
+.github-publisher-note-status.modified {
+  color: var(--text-accent);
+  font-weight: bold;
+}
+
+.github-publisher-note-status.current {
+  color: var(--text-muted);
+}
+
+.github-publisher-note-modified {
+  flex: 1;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.github-publisher-preview-note {
+  padding: 5px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* Publication history */
+.github-publisher-history {
+  margin-top: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.github-publisher-history-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.github-publisher-history-note {
+  flex: 2;
+}
+
+.github-publisher-history-time {
+  flex: 1;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.github-publisher-history-status {
+  flex: 0 0 20px;
+  text-align: right;
+}
+
+.github-publisher-history-status.success {
+  color: var(--text-success);
+}
+
+.github-publisher-history-status.failure {
+  color: var(--text-error);
+}
+
+.github-publisher-no-history {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Error messages */
+.github-publisher-error {
+  color: var(--text-error);
+  font-size: 0.9em;
+  margin-top: 5px;
+}

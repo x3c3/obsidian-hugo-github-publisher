@@ -1,0 +1,10 @@
+{
+  "id": "hugo-github-publisher",
+  "name": "Hugo GitHub Publisher",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "Publish Obsidian notes to GitHub for Hugo site generation",
+  "author": "Obsidian Plugin Team",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}

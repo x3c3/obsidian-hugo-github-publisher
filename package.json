@@ -1,0 +1,37 @@
+{
+  "name": "obsidian-hugo-github-publisher",
+  "version": "1.0.0",
+  "description": "Plugin to publish Obsidian notes to GitHub for Hugo site generation",
+  "main": "main.js",
+  "scripts": {
+    "dev": "bun build src/main.ts --outfile main.js --watch --external obsidian --format=cjs",
+    "build": "bun build src/main.ts --outfile main.js --minify --external obsidian --format=cjs",
+    "test": "bun test",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "typecheck": "tsc -noEmit -skipLibCheck",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "keywords": [
+    "obsidian",
+    "github",
+    "hugo",
+    "publish"
+  ],
+  "author": "Obsidian Plugin Team",
+  "license": "MIT",
+  "dependencies": {
+    "obsidian": "^1.8.7"
+  },
+  "devDependencies": {
+    "@types/node": "^18.15.11",
+    "@typescript-eslint/eslint-plugin": "^5.57.1",
+    "@typescript-eslint/parser": "^5.57.1",
+    "bun-types": "latest",
+    "eslint": "^8.37.0",
+    "eslint-config-prettier": "^10.1.1",
+    "eslint-plugin-prettier": "^5.2.6",
+    "prettier": "^3.5.3",
+    "typescript": "^5.0.3"
+  }
+}

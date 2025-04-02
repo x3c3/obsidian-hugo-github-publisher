@@ -1,0 +1,114 @@
+/* Hugo GitHub Publisher Plugin Styles */
+
+/* General styles */
+.hugo-github-publisher-preview {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--background-modifier-border);
+  padding: 10px;
+  margin-bottom: 10px;
+  border-radius: 4px;
+}
+
+.hugo-github-publisher-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* Note list in preview/modal */
+.hugo-github-publisher-note-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.hugo-github-publisher-header {
+  font-weight: bold;
+  border-bottom: 2px solid var(--background-modifier-border);
+}
+
+.hugo-github-publisher-note-name {
+  flex: 2;
+}
+
+.hugo-github-publisher-note-status {
+  flex: 1;
+  text-align: center;
+}
+
+.hugo-github-publisher-note-status.modified {
+  color: var(--text-accent);
+  font-weight: bold;
+}
+
+.hugo-github-publisher-note-status.current {
+  color: var(--text-muted);
+}
+
+.hugo-github-publisher-note-modified {
+  flex: 1;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.hugo-github-publisher-preview-note {
+  padding: 5px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* Publication history */
+.hugo-github-publisher-history {
+  margin-top: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.hugo-github-publisher-history-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.hugo-github-publisher-history-note {
+  flex: 2;
+}
+
+.hugo-github-publisher-history-time {
+  flex: 1;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.hugo-github-publisher-history-status {
+  flex: 0 0 20px;
+  text-align: right;
+}
+
+.hugo-github-publisher-history-status.success {
+  color: var(--text-success);
+}
+
+.hugo-github-publisher-history-status.failure {
+  color: var(--text-error);
+}
+
+.hugo-github-publisher-no-history {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Error messages */
+.hugo-github-publisher-error {
+  color: var(--text-error);
+  font-size: 0.9em;
+  margin-top: 5px;
+}
