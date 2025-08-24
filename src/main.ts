@@ -17,11 +17,20 @@ export default class HugoGithubPublisherPlugin
 {
   settings: HugoGithubPublisherSettings;
   github: GithubIntegration;
-  converter: any; // Will be properly typed when initialized
-  tracker: any; // Will be properly typed when initialized
+  converter: {
+    convertToSafeHugoFilename: (filename: string) => string;
+    convertToHugoMarkdown: (content: string, filePath: string, originalFilename: string) => string;
+  };
+  tracker: {
+    initialize: () => Promise<void>;
+    getTrackedNotes: (modifiedOnly?: boolean) => PublishableNote[];
+    markNoteAsPublished: (path: string, event: PublicationEvent) => void;
+    refreshTrackedNotes: () => Promise<void>;
+    getAllPublicationHistory: () => { path: string; events: PublicationEvent[] }[];
+    unloadListeners?: () => void;
+  };
 
-  // @ts-ignore
-  async onload() {
+  async onload(): Promise<void> {
     await this.loadSettings();
 
     // Initialize components
@@ -73,7 +82,7 @@ export default class HugoGithubPublisherPlugin
     console.log('Hugo GitHub Publisher plugin loaded');
   }
 
-  onunload() {
+  onunload(): void {
     // Unregister event listeners
     if (this.tracker && typeof this.tracker.unloadListeners === 'function') {
       this.tracker.unloadListeners();
@@ -81,7 +90,7 @@ export default class HugoGithubPublisherPlugin
     console.log('Hugo GitHub Publisher plugin unloaded');
   }
 
-  async loadSettings() {
+  async loadSettings(): Promise<void> {
     console.log('Starting to load settings');
     const loadedData = await this.loadData();
     console.log('Raw loaded data:', loadedData);
@@ -97,13 +106,13 @@ export default class HugoGithubPublisherPlugin
     console.log('Tracking data in final settings:', this.settings.trackingData);
   }
 
-  async saveSettings() {
+  async saveSettings(): Promise<void> {
     console.log('Saving settings:', this.settings);
     console.log('Tracking data being saved:', this.settings.trackingData);
     await this.saveData(this.settings);
   }
 
-  async publishNotes() {
+  async publishNotes(): Promise<void> {
     let notesToPublish: PublishableNote[] = [];
 
     try {
@@ -176,7 +185,7 @@ export default class HugoGithubPublisherPlugin
     }
   }
 
-  async previewNotes() {
+  async previewNotes(): Promise<void> {
     try {
       // First refresh the tracked notes to ensure we have the latest state
       await this.tracker.refreshTrackedNotes();
@@ -218,7 +227,7 @@ export default class HugoGithubPublisherPlugin
     }
   }
 
-  private async republishNotes() {
+  private async republishNotes(): Promise<void> {
     // First refresh the tracked notes to ensure we have the latest state
     await this.tracker.refreshTrackedNotes();
 
@@ -333,11 +342,13 @@ class HugoGithubPublisherSettingTab extends PluginSettingTab {
     }
 
     // Sort by most recent first
-    history.sort((a, b) => {
-      const aLatest = a.events[a.events.length - 1].timestamp;
-      const bLatest = b.events[b.events.length - 1].timestamp;
-      return bLatest - aLatest;
-    });
+    history.sort(
+      (a: { events: { timestamp: number }[] }, b: { events: { timestamp: number }[] }) => {
+        const aLatest = a.events[a.events.length - 1].timestamp;
+        const bLatest = b.events[b.events.length - 1].timestamp;
+        return bLatest - aLatest;
+      }
+    );
 
     // Create a collapsible section for each note
     for (const { path, events } of history) {

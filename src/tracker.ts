@@ -211,7 +211,10 @@ export class NoteTracker {
     this.isRefreshing = true;
     try {
       console.log('Starting refresh of tracked notes');
-      console.log('Current vault path:', this.plugin.app.vault.adapter.basePath);
+      console.log(
+        'Current vault path:',
+        (this.plugin.app.vault.adapter as { basePath?: string })?.basePath || 'unknown'
+      );
 
       // Get all markdown files in the vault
       const files = this.plugin.app.vault.getMarkdownFiles();
@@ -420,7 +423,7 @@ export class NoteTracker {
       const frontmatterText = match[1];
       console.log(`Frontmatter text for ${file.path}:`, frontmatterText);
 
-      const frontmatter: Record<string, any> = {};
+      const frontmatter: Record<string, unknown> = {};
 
       frontmatterText.split('\n').forEach(line => {
         const [key, value] = line.split(':').map(s => s.trim());

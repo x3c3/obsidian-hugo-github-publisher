@@ -1,4 +1,4 @@
-import { TFile } from 'obsidian';
+import { TFile, App } from 'obsidian';
 
 // Plugin settings
 export interface HugoGithubPublisherSettings {
@@ -26,7 +26,7 @@ export interface HugoFrontmatter {
   tags?: string[];
   categories?: string[];
   publish: boolean;
-  [key: string]: any; // Other custom fields
+  [key: string]: unknown; // Other custom fields
 }
 
 // Persistent tracking data structure
@@ -67,5 +67,5 @@ export interface PublishableNote {
 export interface IHugoGithubPublisherPlugin {
   settings: HugoGithubPublisherSettings;
   saveSettings(): Promise<void>;
-  app: any; // App from obsidian
+  app: App; // Use the actual App type from obsidian
 }

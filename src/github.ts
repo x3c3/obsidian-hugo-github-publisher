@@ -196,7 +196,7 @@ export class GithubIntegration {
 
       const encodedContent = btoa(unescape(encodeURIComponent(content)));
 
-      const body: any = {
+      const body: { message: string; content: string; branch: string; sha?: string } = {
         message,
         content: encodedContent,
         branch: branchName,
@@ -224,7 +224,10 @@ export class GithubIntegration {
    * @param options Request options
    * @returns Promise with the response
    */
-  private async makeApiRequest(endpoint: string, options: any = {}): Promise<RequestUrlResponse> {
+  private async makeApiRequest(
+    endpoint: string,
+    options: Record<string, unknown> = {}
+  ): Promise<RequestUrlResponse> {
     const { githubToken } = this.plugin.settings;
     const headers = {
       Authorization: `token ${githubToken}`,
@@ -238,7 +241,7 @@ export class GithubIntegration {
       ...options,
       headers: {
         ...headers,
-        ...(options.headers || {}),
+        ...((options.headers as Record<string, string>) || {}),
       },
     };
 
