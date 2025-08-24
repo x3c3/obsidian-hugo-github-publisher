@@ -9,10 +9,9 @@ A plugin that helps you publish your Obsidian notes to GitHub, ready for Hugo si
 ## Features
 
 - Automatically track notes with frontmatter tag `publish: true`
-- Publish tracked notes to a GitHub repository with a single command
+- Publish current file to a GitHub repository with a single command
 - Convert Obsidian-specific syntax to Hugo-compatible markdown
 - All files are placed in the configured content directory (flat structure)
-- Preview notes before publishing
 - Track publication history
 - Support for configuring GitHub repository details
 
@@ -53,16 +52,17 @@ publish: true
 ---
 ```
 
-### Publishing Notes
+### Publishing the Current File
 
-1. Use the command palette (Ctrl/Cmd+P) and search for "Publish to GitHub"
-2. Review the notes that will be published in the preview dialog
-3. Confirm the publication
+1. Open the file you want to publish in Obsidian
+2. Use the command palette (Ctrl/Cmd+P) and search for "Publish current file to GitHub"
+3. The plugin will publish the currently active file if it has `publish: true` in its frontmatter
 
-### Previewing Publishable Notes
+### Republishing the Current File
 
-1. Use the command palette and search for "Preview Publishable Notes"
-2. View all notes marked for publication and their status
+1. Open the file you want to republish in Obsidian
+2. Use the command palette and search for "Republish current file"
+3. This will force republish the current file even if it hasn't been modified
 
 ## Development
 
@@ -78,7 +78,7 @@ publish: true
 ### Project Structure
 
 - `src/main.ts` - Main plugin file
-- `src/noteTracker.ts` - Tracks notes with publish frontmatter
+- `src/tracker.ts` - Tracks notes with publish frontmatter
 - `src/markdownConverter.ts` - Converts Obsidian markdown to Hugo format
 - `src/githubClient.ts` - Handles GitHub API integration
 - `styles/styles.css` - Plugin styles

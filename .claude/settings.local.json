@@ -14,7 +14,8 @@
       "Bash(bun install:*)",
       "Bash(./node_modules/.bin/tsc:*)",
       "Bash(./node_modules/.bin/eslint:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git push:*)"
     ]
   },
   "enableAllProjectMcpServers": false

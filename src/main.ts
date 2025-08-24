@@ -50,17 +50,17 @@ export default class HugoGithubPublisherPlugin
     const settingsTab = new HugoGithubPublisherSettingTab(this.app, this);
     this.addSettingTab(settingsTab);
 
-    // Add command to publish notes
+    // Add command to publish current file
     this.addCommand({
       id: 'publish-to-github',
-      name: 'Publish to GitHub',
+      name: 'Publish current file to GitHub',
       callback: () => this.publishNotes(),
     });
 
     // Add command to republish notes
     this.addCommand({
       id: 'republish-notes',
-      name: 'Republish notes',
+      name: 'Republish current file',
       callback: () => this.republishNotes(),
     });
 
@@ -106,45 +106,41 @@ export default class HugoGithubPublisherPlugin
   }
 
   async publishNotes(): Promise<void> {
-    let notesToPublish: PublishableNote[] = [];
+    let noteToPublish: PublishableNote | null = null;
 
     try {
-      // Get modified notes with latest state
-      notesToPublish = this.tracker.getTrackedNotes(true);
-
-      if (notesToPublish.length === 0) {
-        new Notice('No modified notes to publish.');
+      // Get the current active file
+      const activeFile = this.app.workspace.getActiveFile();
+      if (!activeFile) {
+        new Notice('No active file to publish.');
         return;
       }
 
-      // First, convert notes to Hugo format
-      const filesToPublish = [];
+      // Check if the current file is trackable (has publish: true)
+      const allTrackedNotes = this.tracker.getTrackedNotes();
+      noteToPublish = allTrackedNotes.find(note => note.file.path === activeFile.path) || null;
 
-      for (const note of notesToPublish) {
-        try {
-          const content = await this.app.vault.read(note.file);
-          const originalFilename = note.file.name;
-          const safeFilename = this.converter.convertToSafeHugoFilename(originalFilename);
-          const hugoContent = this.converter.convertToHugoMarkdown(
-            content,
-            note.file.path,
-            originalFilename
-          );
-
-          filesToPublish.push({
-            path: safeFilename,
-            content: hugoContent,
-          });
-        } catch (error) {
-          console.error(`Error processing file ${note.file.path}:`, error);
-          new Notice(`Error processing ${note.file.name}: ${error.message}`);
-        }
-      }
-
-      if (filesToPublish.length === 0) {
-        new Notice('No files to publish after processing.');
+      if (!noteToPublish) {
+        new Notice('Current file is not publishable. Add "publish: true" to frontmatter.');
         return;
       }
+
+      // Convert the current file to Hugo format
+      const content = await this.app.vault.read(noteToPublish.file);
+      const originalFilename = noteToPublish.file.name;
+      const safeFilename = this.converter.convertToSafeHugoFilename(originalFilename);
+      const hugoContent = this.converter.convertToHugoMarkdown(
+        content,
+        noteToPublish.file.path,
+        originalFilename
+      );
+
+      const filesToPublish = [
+        {
+          path: safeFilename,
+          content: hugoContent,
+        },
+      ];
 
       // Publish to GitHub
       const result = await this.github.pushToGithub(filesToPublish);
@@ -156,10 +152,9 @@ export default class HugoGithubPublisherPlugin
           status: 'success',
         };
 
-        // Mark notes as published
-        for (const note of notesToPublish) {
-          this.tracker.markNoteAsPublished(note.file.path, event);
-        }
+        // Mark the note as published
+        this.tracker.markNoteAsPublished(noteToPublish.file.path, event);
+        new Notice(`Successfully published: ${noteToPublish.file.name}`);
       }
     } catch (error) {
       console.error('Error publishing notes:', error);
@@ -172,35 +167,36 @@ export default class HugoGithubPublisherPlugin
         error: error.message,
       };
 
-      for (const note of notesToPublish) {
-        this.tracker.markNoteAsPublished(note.file.path, event);
+      if (noteToPublish) {
+        this.tracker.markNoteAsPublished(noteToPublish.file.path, event);
       }
     }
   }
 
   private async republishNotes(): Promise<void> {
-    // First refresh the tracked notes to ensure we have the latest state
-    await this.tracker.refreshTrackedNotes();
+    // Get the current active file
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile) {
+      new Notice('No active file to republish.');
+      return;
+    }
 
-    // Get all tracked notes (not just modified ones)
-    const notes = this.tracker.getTrackedNotes();
+    // Check if the current file is trackable (has publish: true)
+    const allTrackedNotes = this.tracker.getTrackedNotes();
+    const noteToRepublish = allTrackedNotes.find(note => note.file.path === activeFile.path);
 
-    if (notes.length === 0) {
-      new Notice('No publishable notes found. Add publish: true to frontmatter to track notes.');
+    if (!noteToRepublish) {
+      new Notice('Current file is not publishable. Add "publish: true" to frontmatter.');
       return;
     }
 
     try {
-      // Force republish by setting all notes as modified
-      notes.forEach(note => {
-        note.modified = true;
-      });
-
+      // Force republish by calling publishNotes (which now handles current file)
       await this.publishNotes();
-      new Notice('Notes republished successfully');
+      new Notice(`Successfully republished: ${noteToRepublish.file.name}`);
     } catch (error) {
-      console.error('Error republishing notes:', error);
-      new Notice('Error republishing notes: ' + error.message);
+      console.error('Error republishing note:', error);
+      new Notice('Error republishing note: ' + error.message);
     }
   }
 }
