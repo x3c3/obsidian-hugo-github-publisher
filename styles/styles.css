@@ -1,14 +1,6 @@
 /* Hugo GitHub Publisher Plugin Styles */
 
 /* General styles */
-.hugo-github-publisher-preview {
-  max-height: 400px;
-  overflow-y: auto;
-  border: 1px solid var(--background-modifier-border);
-  padding: 10px;
-  margin-bottom: 10px;
-  border-radius: 4px;
-}
 
 .hugo-github-publisher-buttons {
   display: flex;
@@ -17,7 +9,7 @@
   margin-top: 20px;
 }
 
-/* Note list in preview/modal */
+/* Note list styling */
 .hugo-github-publisher-note-row {
   display: flex;
   justify-content: space-between;
@@ -55,10 +47,6 @@
   font-size: 0.9em;
 }
 
-.hugo-github-publisher-preview-note {
-  padding: 5px 0;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
 
 /* Publication history */
 .hugo-github-publisher-history {

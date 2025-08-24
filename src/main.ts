@@ -57,13 +57,6 @@ export default class HugoGithubPublisherPlugin
       callback: () => this.publishNotes(),
     });
 
-    // Add command to preview publishable notes
-    this.addCommand({
-      id: 'preview-publishable-notes',
-      name: 'Preview publishable notes',
-      callback: () => this.previewNotes(),
-    });
-
     // Add command to republish notes
     this.addCommand({
       id: 'republish-notes',
@@ -182,48 +175,6 @@ export default class HugoGithubPublisherPlugin
       for (const note of notesToPublish) {
         this.tracker.markNoteAsPublished(note.file.path, event);
       }
-    }
-  }
-
-  async previewNotes(): Promise<void> {
-    try {
-      // First refresh the tracked notes to ensure we have the latest state
-      await this.tracker.refreshTrackedNotes();
-
-      // Get all tracked notes with latest state
-      const allNotes = this.tracker.getTrackedNotes();
-      const modifiedNotes = this.tracker.getTrackedNotes(true);
-
-      console.log('Preview notes state:', {
-        allNotes: allNotes.map(n => n.file.path),
-        modifiedNotes: modifiedNotes.map(n => n.file.path),
-      });
-
-      if (allNotes.length === 0) {
-        new Notice('No publishable notes found. Add publish: true to frontmatter to track notes.');
-        return;
-      }
-
-      // Create a summary message
-      let message = `Found ${allNotes.length} publishable notes\n`;
-      message += `${modifiedNotes.length} notes have been modified since last publish\n\n`;
-
-      if (modifiedNotes.length > 0) {
-        message += 'Modified notes:\n';
-        for (const note of modifiedNotes) {
-          const validMark = note.validationErrors ? '❌' : '✅';
-          message += `${validMark} ${note.file.name}\n`;
-
-          if (note.validationErrors) {
-            message += `   Errors: ${note.validationErrors.join(', ')}\n`;
-          }
-        }
-      }
-
-      new Notice(message, 10000);
-    } catch (error) {
-      console.error('Error previewing notes:', error);
-      new Notice(`Error previewing notes: ${error.message}`);
     }
   }
 
