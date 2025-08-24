@@ -1,400 +1,271 @@
-import { App, Plugin, PluginSettingTab, Setting, Notice, Modal, TFile } from 'obsidian';
-import { NoteTracker, TrackedNote } from './noteTracker';
-import { MarkdownConverter, ConversionOptions } from './markdownConverter';
-import { GitHubClient, CommitFile } from './githubClient';
+import { App, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 
-interface HugoGitHubPublisherSettings {
-  repoUrl: string;
-  branch: string;
-  contentPath: string;
-  token: string;
-  defaultFrontmatter: string;
-  fileExtension: string;
-  imageHandling: string;
-}
+import {
+  HugoGithubPublisherSettings,
+  DEFAULT_SETTINGS,
+  IHugoGithubPublisherPlugin,
+  PublicationEvent,
+  PublishableNote,
+} from './types';
 
-const DEFAULT_SETTINGS: HugoGitHubPublisherSettings = {
-  repoUrl: '',
-  branch: 'main',
-  contentPath: 'content',
-  token: '',
-  defaultFrontmatter: 'title: "{{title}}"\ndate: {{date}}\ndraft: false',
-  fileExtension: '.md',
-  imageHandling: 'copy',
-};
+import { GithubIntegration } from './github';
+import 'tslib';
 
-export default class HugoGitHubPublisherPlugin extends Plugin {
-  settings!: HugoGitHubPublisherSettings;
-  noteTracker!: NoteTracker;
-  markdownConverter!: MarkdownConverter;
-  publishHistory: { note: string; timestamp: number; success: boolean }[] = [];
+export default class HugoGithubPublisherPlugin
+  extends Plugin
+  implements IHugoGithubPublisherPlugin
+{
+  settings: HugoGithubPublisherSettings;
+  github: GithubIntegration;
+  converter: any; // Will be properly typed when initialized
+  tracker: any; // Will be properly typed when initialized
 
-  async onload(): Promise<void> {
+  // @ts-ignore
+  async onload() {
     await this.loadSettings();
 
     // Initialize components
-    this.noteTracker = new NoteTracker(this.app.vault, this.app.metadataCache);
-    this.markdownConverter = new MarkdownConverter(this.app.vault, this.app.metadataCache);
+    this.github = new GithubIntegration(this);
 
-    // Register event to track file changes
-    this.registerEvent(
-      this.app.metadataCache.on('changed', file => {
-        if (file instanceof TFile && file.extension === 'md') {
-          // Refresh tracking when files change
-          this.noteTracker.scanVault();
-        }
-      })
-    );
+    // Import and initialize other components using bridge files
+    const { getConverter } = await import('./converter-bridge');
+    const { getTracker } = await import('./tracker-bridge');
 
-    // Initial scan of vault
-    await this.noteTracker.scanVault();
+    const { MarkdownConverter } = await getConverter();
+    const { NoteTracker } = await getTracker();
 
-    // Add the command to publish to GitHub
+    this.converter = new MarkdownConverter(this);
+    this.tracker = new NoteTracker(this);
+
+    // Add settings tab
+    const settingsTab = new HugoGithubPublisherSettingTab(this.app, this);
+    this.addSettingTab(settingsTab);
+
+    // Add command to publish notes
     this.addCommand({
       id: 'publish-to-github',
       name: 'Publish to GitHub',
-      callback: () => {
-        this.publishToGitHub();
-      },
+      callback: () => this.publishNotes(),
     });
 
     // Add command to preview publishable notes
     this.addCommand({
       id: 'preview-publishable-notes',
-      name: 'Preview Publishable Notes',
-      callback: () => {
-        this.previewPublishableNotes();
-      },
+      name: 'Preview publishable notes',
+      callback: () => this.previewNotes(),
     });
 
-    // Add a settings tab
-    this.addSettingTab(new HugoGitHubPublisherSettingTab(this.app, this));
+    // Add command to republish notes
+    this.addCommand({
+      id: 'republish-notes',
+      name: 'Republish notes',
+      callback: () => this.republishNotes(),
+    });
 
-    // Load CSS
-    this.loadStyles();
+    // Wait for the vault to be ready before initializing tracking
+    this.app.workspace.onLayoutReady(async () => {
+      console.log('Vault is ready, initializing tracking');
+      await this.tracker.initialize();
+      // Update the settings display after tracking is initialized
+      settingsTab.display();
+    });
+
+    console.log('Hugo GitHub Publisher plugin loaded');
   }
 
-  async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  onunload() {
+    // Unregister event listeners
+    if (this.tracker && typeof this.tracker.unloadListeners === 'function') {
+      this.tracker.unloadListeners();
+    }
+    console.log('Hugo GitHub Publisher plugin unloaded');
   }
 
-  async saveSettings(): Promise<void> {
+  async loadSettings() {
+    console.log('Starting to load settings');
+    const loadedData = await this.loadData();
+    console.log('Raw loaded data:', loadedData);
+
+    // Ensure trackingData exists in loaded settings
+    if (loadedData && !loadedData.trackingData) {
+      console.log('No tracking data found in loaded settings, initializing');
+      loadedData.trackingData = { notes: {} };
+    }
+
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedData);
+    console.log('Final settings after merge:', this.settings);
+    console.log('Tracking data in final settings:', this.settings.trackingData);
+  }
+
+  async saveSettings() {
+    console.log('Saving settings:', this.settings);
+    console.log('Tracking data being saved:', this.settings.trackingData);
     await this.saveData(this.settings);
   }
 
-  loadStyles(): void {
-    // Add a css class to body so our styles apply only to our elements
-    document.body.classList.add('hugo-github-publisher-enabled');
-  }
+  async publishNotes() {
+    let notesToPublish: PublishableNote[] = [];
 
-  async publishToGitHub(): Promise<void> {
-    // Check if settings are configured
-    if (!this.settings.repoUrl || !this.settings.token) {
-      new Notice('Please configure GitHub repository settings first.');
-      return;
-    }
-
-    // Scan for publishable notes
-    await this.noteTracker.scanVault();
-    const modifiedNotes = this.noteTracker.getModifiedNotes();
-
-    if (modifiedNotes.length === 0) {
-      new Notice('No publishable notes have been modified since last publication.');
-      return;
-    }
-
-    // Show preview and confirmation dialog
-    const modal = new PublishConfirmationModal(this.app, modifiedNotes, async confirmed => {
-      if (confirmed) {
-        await this.doPublish(modifiedNotes);
-      }
-    });
-
-    modal.open();
-  }
-
-  async doPublish(notes: TrackedNote[]): Promise<void> {
     try {
-      // Parse repo URL to get owner and repo
-      const githubClient = this.createGitHubClient();
-      if (!githubClient) {
-        new Notice('Invalid GitHub repository URL.');
+      // Get modified notes with latest state
+      notesToPublish = this.tracker.getTrackedNotes(true);
+
+      if (notesToPublish.length === 0) {
+        new Notice('No modified notes to publish.');
         return;
       }
 
-      // Convert notes to Hugo format
-      const conversionOptions: ConversionOptions = {
-        frontmatterTemplate: this.settings.defaultFrontmatter,
-        fileExtension: this.settings.fileExtension,
-        imageHandling: this.settings.imageHandling,
-      };
+      // First, convert notes to Hugo format
+      const filesToPublish = [];
 
-      // Check for duplicate filenames since we're flattening the structure
-      const fileNames = new Map<string, string>();
-      const duplicates: string[] = [];
+      for (const note of notesToPublish) {
+        try {
+          const content = await this.app.vault.read(note.file);
+          const originalFilename = note.file.name;
+          const safeFilename = this.converter.convertToSafeHugoFilename(originalFilename);
+          const hugoContent = this.converter.convertToHugoMarkdown(
+            content,
+            note.file.path,
+            originalFilename
+          );
 
-      for (const note of notes) {
-        const fileName = note.file.basename;
-        if (fileNames.has(fileName)) {
-          duplicates.push(`${fileName} (${fileNames.get(fileName)} and ${note.file.path})`);
-        } else {
-          fileNames.set(fileName, note.file.path);
-        }
-      }
-
-      if (duplicates.length > 0) {
-        new Notice(
-          `Warning: Duplicate filenames detected: ${duplicates.join(', ')}. Files will overwrite each other.`
-        );
-      }
-
-      const commitFiles: CommitFile[] = [];
-
-      for (const note of notes) {
-        const hugoContent = await this.markdownConverter.convertNoteForHugo(
-          note.file,
-          conversionOptions
-        );
-
-        // Generate path for GitHub - extract only the filename, ignore subfolder structure
-        const fileName = note.file.basename + this.settings.fileExtension;
-        const notePath = `${this.settings.contentPath}/${fileName}`;
-
-        commitFiles.push({
-          path: notePath,
-          content: hugoContent,
-        });
-      }
-
-      // Upload files to GitHub
-      const success = await githubClient.uploadFiles(commitFiles);
-
-      if (success) {
-        // Update published status
-        for (const note of notes) {
-          this.noteTracker.updatePublishedStatus(note.file.path);
-
-          // Add to history
-          this.publishHistory.push({
-            note: note.file.basename,
-            timestamp: Date.now(),
-            success: true,
+          filesToPublish.push({
+            path: safeFilename,
+            content: hugoContent,
           });
+        } catch (error) {
+          console.error(`Error processing file ${note.file.path}:`, error);
+          new Notice(`Error processing ${note.file.name}: ${error.message}`);
         }
+      }
 
-        // Keep history to reasonable size
-        if (this.publishHistory.length > 50) {
-          this.publishHistory = this.publishHistory.slice(-50);
+      if (filesToPublish.length === 0) {
+        new Notice('No files to publish after processing.');
+        return;
+      }
+
+      // Publish to GitHub
+      const result = await this.github.pushToGithub(filesToPublish);
+
+      if (result) {
+        const event: PublicationEvent = {
+          timestamp: Date.now(),
+          branch: this.github.generateUniqueBranchName(),
+          status: 'success',
+        };
+
+        // Mark notes as published
+        for (const note of notesToPublish) {
+          this.tracker.markNoteAsPublished(note.file.path, event);
         }
-
-        // Save data with updated publishing timestamps
-        await this.saveData({
-          ...this.settings,
-          publishHistory: this.publishHistory,
-        });
       }
     } catch (error) {
-      console.error('Error publishing to GitHub:', error);
-      new Notice('Failed to publish to GitHub. Check console for details.');
-    }
-  }
+      console.error('Error publishing notes:', error);
+      new Notice(`Error publishing notes: ${error.message}`);
 
-  previewPublishableNotes(): void {
-    const trackedNotes = this.noteTracker.getTrackedNotes();
-    const modifiedNotes = this.noteTracker.getModifiedNotes();
-
-    const modal = new PublishableNotesModal(this.app, trackedNotes, modifiedNotes);
-    modal.open();
-  }
-
-  createGitHubClient(): GitHubClient | null {
-    const repoUrl = this.settings.repoUrl;
-    const client = new GitHubClient({
-      owner: '',
-      repo: '',
-      branch: this.settings.branch,
-      contentPath: this.settings.contentPath,
-      token: this.settings.token,
-    });
-
-    const repoInfo = client.parseRepoUrl(repoUrl);
-    if (!repoInfo) {
-      return null;
-    }
-
-    return new GitHubClient({
-      owner: repoInfo.owner,
-      repo: repoInfo.repo,
-      branch: this.settings.branch,
-      contentPath: this.settings.contentPath,
-      token: this.settings.token,
-    });
-  }
-
-  onunload(): void {
-    document.body.classList.remove('hugo-github-publisher-enabled');
-  }
-}
-
-class PublishConfirmationModal extends Modal {
-  notes: TrackedNote[];
-  onConfirm: (confirmed: boolean) => void;
-  plugin: HugoGitHubPublisherPlugin;
-
-  constructor(app: App, notes: TrackedNote[], onConfirm: (confirmed: boolean) => void) {
-    super(app);
-    this.notes = notes;
-    this.onConfirm = onConfirm;
-    // Get access to the plugin instance
-    // Use a type assertion for the Obsidian API
-    interface ObsidianApp extends App {
-      plugins: {
-        plugins: Record<string, HugoGitHubPublisherPlugin>;
+      const event: PublicationEvent = {
+        timestamp: Date.now(),
+        branch: 'unknown',
+        status: 'failure',
+        error: error.message,
       };
+
+      for (const note of notesToPublish) {
+        this.tracker.markNoteAsPublished(note.file.path, event);
+      }
     }
-    this.plugin = (app as ObsidianApp).plugins.plugins['hugo-github-publisher'];
   }
 
-  onOpen() {
-    const { contentEl } = this;
+  async previewNotes() {
+    try {
+      // First refresh the tracked notes to ensure we have the latest state
+      await this.tracker.refreshTrackedNotes();
 
-    contentEl.createEl('h2', { text: 'Publish to GitHub' });
+      // Get all tracked notes with latest state
+      const allNotes = this.tracker.getTrackedNotes();
+      const modifiedNotes = this.tracker.getTrackedNotes(true);
 
-    contentEl.createEl('p', {
-      text: `You are about to publish ${this.notes.length} notes to GitHub. Continue?`,
-    });
-
-    const previewDiv = contentEl.createDiv({ cls: 'hugo-github-publisher-preview' });
-
-    this.notes.forEach(note => {
-      const destinationPath = `${this.plugin.settings.contentPath}/${note.file.basename}${this.plugin.settings.fileExtension}`;
-      previewDiv.createEl('div', {
-        text: `${note.file.basename} → ${destinationPath}`,
-        cls: 'hugo-github-publisher-preview-note',
+      console.log('Preview notes state:', {
+        allNotes: allNotes.map(n => n.file.path),
+        modifiedNotes: modifiedNotes.map(n => n.file.path),
       });
-    });
 
-    const buttonDiv = contentEl.createDiv({ cls: 'hugo-github-publisher-buttons' });
+      if (allNotes.length === 0) {
+        new Notice('No publishable notes found. Add publish: true to frontmatter to track notes.');
+        return;
+      }
 
-    buttonDiv.createEl('button', { text: 'Cancel' }).addEventListener('click', () => {
-      this.close();
-      this.onConfirm(false);
-    });
+      // Create a summary message
+      let message = `Found ${allNotes.length} publishable notes\n`;
+      message += `${modifiedNotes.length} notes have been modified since last publish\n\n`;
 
-    buttonDiv
-      .createEl('button', {
-        text: 'Publish',
-        cls: 'mod-cta',
-      })
-      .addEventListener('click', () => {
-        this.close();
-        this.onConfirm(true);
-      });
+      if (modifiedNotes.length > 0) {
+        message += 'Modified notes:\n';
+        for (const note of modifiedNotes) {
+          const validMark = note.validationErrors ? '❌' : '✅';
+          message += `${validMark} ${note.file.name}\n`;
+
+          if (note.validationErrors) {
+            message += `   Errors: ${note.validationErrors.join(', ')}\n`;
+          }
+        }
+      }
+
+      new Notice(message, 10000);
+    } catch (error) {
+      console.error('Error previewing notes:', error);
+      new Notice(`Error previewing notes: ${error.message}`);
+    }
   }
 
-  onClose() {
-    const { contentEl } = this;
-    contentEl.empty();
-  }
-}
+  private async republishNotes() {
+    // First refresh the tracked notes to ensure we have the latest state
+    await this.tracker.refreshTrackedNotes();
 
-class PublishableNotesModal extends Modal {
-  trackedNotes: TrackedNote[];
-  modifiedNotes: TrackedNote[];
+    // Get all tracked notes (not just modified ones)
+    const notes = this.tracker.getTrackedNotes();
 
-  constructor(app: App, trackedNotes: TrackedNote[], modifiedNotes: TrackedNote[]) {
-    super(app);
-    this.trackedNotes = trackedNotes;
-    this.modifiedNotes = modifiedNotes;
-  }
+    if (notes.length === 0) {
+      new Notice('No publishable notes found. Add publish: true to frontmatter to track notes.');
+      return;
+    }
 
-  onOpen() {
-    const { contentEl } = this;
-
-    contentEl.createEl('h2', { text: 'Publishable Notes' });
-
-    contentEl.createEl('p', {
-      text:
-        `Found ${this.trackedNotes.length} publishable notes, ` +
-        `${this.modifiedNotes.length} modified since last publish.`,
-    });
-
-    const previewDiv = contentEl.createDiv({ cls: 'hugo-github-publisher-preview' });
-
-    // Add a table header
-    const headerRow = previewDiv.createEl('div', {
-      cls: 'hugo-github-publisher-note-row hugo-github-publisher-header',
-    });
-    headerRow.createEl('span', {
-      text: 'Note',
-      cls: 'hugo-github-publisher-note-name',
-    });
-    headerRow.createEl('span', {
-      text: 'Status',
-      cls: 'hugo-github-publisher-note-status',
-    });
-    headerRow.createEl('span', {
-      text: 'Last Modified',
-      cls: 'hugo-github-publisher-note-modified',
-    });
-
-    // Add each note
-    this.trackedNotes.forEach(note => {
-      const noteRow = previewDiv.createEl('div', {
-        cls: 'github-publisher-note-row',
+    try {
+      // Force republish by setting all notes as modified
+      notes.forEach(note => {
+        note.modified = true;
       });
 
-      noteRow.createEl('span', {
-        text: note.file.basename,
-        cls: 'github-publisher-note-name',
-      });
-
-      const isModified = this.modifiedNotes.some(n => n.file.path === note.file.path);
-
-      noteRow.createEl('span', {
-        text: isModified ? 'Modified' : 'Up to date',
-        cls: `github-publisher-note-status ${isModified ? 'modified' : 'current'}`,
-      });
-
-      noteRow.createEl('span', {
-        text: new Date(note.lastModified).toLocaleString(),
-        cls: 'github-publisher-note-modified',
-      });
-    });
-
-    const buttonDiv = contentEl.createDiv({ cls: 'hugo-github-publisher-buttons' });
-
-    buttonDiv.createEl('button', { text: 'Close' }).addEventListener('click', () => {
-      this.close();
-    });
-  }
-
-  onClose() {
-    const { contentEl } = this;
-    contentEl.empty();
+      await this.publishNotes();
+      new Notice('Notes republished successfully');
+    } catch (error) {
+      console.error('Error republishing notes:', error);
+      new Notice('Error republishing notes: ' + error.message);
+    }
   }
 }
 
-class HugoGitHubPublisherSettingTab extends PluginSettingTab {
-  plugin: HugoGitHubPublisherPlugin;
+class HugoGithubPublisherSettingTab extends PluginSettingTab {
+  plugin: HugoGithubPublisherPlugin;
 
-  constructor(app: App, plugin: HugoGitHubPublisherPlugin) {
+  constructor(app: App, plugin: HugoGithubPublisherPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
 
   display(): void {
     const { containerEl } = this;
+
     containerEl.empty();
 
-    containerEl.createEl('h2', { text: 'Hugo GitHub Publisher Settings' });
+    containerEl.createEl('h2', { text: 'GitHub Publisher Settings' });
 
     new Setting(containerEl)
-      .setName('GitHub Repository URL')
-      .setDesc('URL of the GitHub repository to publish to')
+      .setName('GitHub Repository')
+      .setDesc('Repository in format username/repo or organization/repo')
       .addText(text =>
         text
-          .setPlaceholder('https://github.com/username/repo')
+          .setPlaceholder('username/repo')
           .setValue(this.plugin.settings.repoUrl)
           .onChange(async value => {
             this.plugin.settings.repoUrl = value;
@@ -403,24 +274,24 @@ class HugoGitHubPublisherSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('Branch')
-      .setDesc('Branch to publish to')
+      .setName('Branch Root')
+      .setDesc('Root name for generated branches (e.g., updates-2023-01-01)')
       .addText(text =>
         text
-          .setPlaceholder('main')
-          .setValue(this.plugin.settings.branch)
+          .setPlaceholder('updates')
+          .setValue(this.plugin.settings.branchRoot)
           .onChange(async value => {
-            this.plugin.settings.branch = value;
+            this.plugin.settings.branchRoot = value;
             await this.plugin.saveSettings();
           })
       );
 
     new Setting(containerEl)
       .setName('Content Path')
-      .setDesc('Path to the content directory in the repository')
+      .setDesc('Path where content will be published (e.g., content/posts)')
       .addText(text =>
         text
-          .setPlaceholder('content')
+          .setPlaceholder('content/posts')
           .setValue(this.plugin.settings.contentPath)
           .onChange(async value => {
             this.plugin.settings.contentPath = value;
@@ -430,93 +301,99 @@ class HugoGitHubPublisherSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('GitHub Token')
-      .setDesc('Personal access token for GitHub API')
+      .setDesc('Personal access token with repo scope')
       .addText(text =>
         text
-          .setPlaceholder('ghp_xxxxxxxxxxxx')
-          .setValue(this.plugin.settings.token)
+          .setPlaceholder('ghp_...')
+          .setValue(this.plugin.settings.githubToken)
           .onChange(async value => {
-            this.plugin.settings.token = value;
+            this.plugin.settings.githubToken = value;
             await this.plugin.saveSettings();
           })
       );
 
-    new Setting(containerEl)
-      .setName('Default Frontmatter')
-      .setDesc('Template for default frontmatter (use {{title}} and {{date}} as placeholders)')
-      .addTextArea(text =>
-        text
-          .setPlaceholder('title: "{{title}}"\ndate: {{date}}\ndraft: false')
-          .setValue(this.plugin.settings.defaultFrontmatter)
-          .onChange(async value => {
-            this.plugin.settings.defaultFrontmatter = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName('File Extension')
-      .setDesc('File extension for published files')
-      .addDropdown(dropdown =>
-        dropdown
-          .addOption('.md', 'Markdown (.md)')
-          .addOption('.markdown', 'Markdown (.markdown)')
-          .setValue(this.plugin.settings.fileExtension)
-          .onChange(async value => {
-            this.plugin.settings.fileExtension = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName('Image Handling')
-      .setDesc('How to handle images in notes')
-      .addDropdown(dropdown =>
-        dropdown
-          .addOption('copy', 'Copy to assets folder')
-          .addOption('reference', 'Keep references as-is')
-          .setValue(this.plugin.settings.imageHandling)
-          .onChange(async value => {
-            this.plugin.settings.imageHandling = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    // Publication history section
+    // Add publication history section
     containerEl.createEl('h3', { text: 'Publication History' });
 
-    if (this.plugin.publishHistory && this.plugin.publishHistory.length > 0) {
-      const historyContainer = containerEl.createDiv({
-        cls: 'github-publisher-history',
+    const historyContainer = containerEl.createDiv('publication-history');
+    console.log('Displaying publication history');
+    console.log('Plugin settings:', this.plugin.settings);
+    console.log('Tracking data:', this.plugin.settings.trackingData);
+    console.log('Tracked notes:', this.plugin.tracker.getTrackedNotes());
+    this.displayPublicationHistory(historyContainer);
+  }
+
+  private displayPublicationHistory(container: HTMLElement): void {
+    const history = this.plugin.tracker.getAllPublicationHistory();
+    console.log('Publication history:', history);
+
+    if (history.length === 0) {
+      container.createEl('p', { text: 'No publication history available.' });
+      return;
+    }
+
+    // Sort by most recent first
+    history.sort((a, b) => {
+      const aLatest = a.events[a.events.length - 1].timestamp;
+      const bLatest = b.events[b.events.length - 1].timestamp;
+      return bLatest - aLatest;
+    });
+
+    // Create a collapsible section for each note
+    for (const { path, events } of history) {
+      const noteSection = container.createDiv('note-history');
+      const noteName = path.split('/').pop() || path;
+
+      // Create header with note name and last publication status
+      const header = noteSection.createDiv('note-history-header');
+      const lastEvent = events[events.length - 1];
+      const statusIcon = lastEvent.status === 'success' ? '✅' : '❌';
+
+      header.createEl('h4', {
+        text: `${statusIcon} ${noteName}`,
+        cls: 'note-history-title',
       });
 
-      this.plugin.publishHistory
-        .slice()
-        .reverse()
-        .forEach(entry => {
-          const historyItem = historyContainer.createDiv({
-            cls: 'github-publisher-history-item',
-          });
+      // Create collapsible content
+      const content = noteSection.createDiv('note-history-content');
 
-          historyItem.createSpan({
-            text: entry.note,
-            cls: 'github-publisher-history-note',
-          });
+      // Display events in reverse chronological order
+      for (const event of events.reverse()) {
+        const eventDiv = content.createDiv('publication-event');
 
-          historyItem.createSpan({
-            text: new Date(entry.timestamp).toLocaleString(),
-            cls: 'github-publisher-history-time',
-          });
+        // Format timestamp
+        const date = new Date(event.timestamp);
+        const formattedDate = date.toLocaleString();
 
-          historyItem.createSpan({
-            text: entry.success ? '✓' : '✗',
-            cls: `github-publisher-history-status ${entry.success ? 'success' : 'failure'}`,
-          });
+        // Create event details
+        eventDiv.createEl('p', {
+          text: `📅 ${formattedDate}`,
+          cls: 'event-timestamp',
         });
-    } else {
-      containerEl.createEl('p', {
-        text: 'No publication history yet.',
-        cls: 'github-publisher-no-history',
+
+        eventDiv.createEl('p', {
+          text: `🌿 Branch: ${event.branch}`,
+          cls: 'event-branch',
+        });
+
+        if (event.commitHash) {
+          eventDiv.createEl('p', {
+            text: `🔗 Commit: ${event.commitHash}`,
+            cls: 'event-commit',
+          });
+        }
+
+        if (event.error) {
+          eventDiv.createEl('p', {
+            text: `❌ Error: ${event.error}`,
+            cls: 'event-error',
+          });
+        }
+      }
+
+      // Add click handler to toggle content
+      header.addEventListener('click', () => {
+        content.toggleClass('collapsed', !content.hasClass('collapsed'));
       });
     }
   }
