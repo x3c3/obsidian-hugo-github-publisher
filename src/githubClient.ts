@@ -49,8 +49,6 @@ export class GitHubClient {
   }
 
   private async fetchBranchData(): Promise<Record<string, unknown>> {
-    // Destructure what we need
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { owner, repo, branch, token } = this.repoInfo;
 
     const response = await fetch(
@@ -73,8 +71,7 @@ export class GitHubClient {
   }
 
   private async createCommit(files: CommitFile[], parentSha: string): Promise<boolean> {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { owner, repo, branch, token } = this.repoInfo;
+    const { owner: _owner, repo: _repo, branch: _branch, token: _token } = this.repoInfo;
 
     // Create a new tree with the files
     const tree = await this.createTree(files, parentSha);
