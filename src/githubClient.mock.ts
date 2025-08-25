@@ -56,8 +56,6 @@ export class GitHubClient {
   }
 
   private async fetchBranchData(): Promise<Record<string, unknown>> {
-    // Destructure what we need
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { owner, repo, branch, token } = this.repoInfo;
 
     const response = await fetch(
