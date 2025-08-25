@@ -50,18 +50,18 @@ export default class HugoGithubPublisherPlugin
     const settingsTab = new HugoGithubPublisherSettingTab(this.app, this);
     this.addSettingTab(settingsTab);
 
-    // Add command to publish current file
+    // Add command to publish all marked files
     this.addCommand({
-      id: 'publish-to-github',
-      name: 'Publish current file to GitHub',
-      callback: () => this.publishNotes(),
+      id: 'publish-all-notes',
+      name: 'Publish all marked files to GitHub',
+      callback: () => this.publishAllNotes(),
     });
 
-    // Add command to republish notes
+    // Add command to publish current file
     this.addCommand({
-      id: 'republish-notes',
-      name: 'Republish current file',
-      callback: () => this.republishNotes(),
+      id: 'publish-current-file',
+      name: 'Publish current file to GitHub',
+      callback: () => this.publishCurrentFile(),
     });
 
     // Wait for the vault to be ready before initializing tracking
@@ -105,7 +105,7 @@ export default class HugoGithubPublisherPlugin
     await this.saveData(this.settings);
   }
 
-  async publishNotes(): Promise<void> {
+  async publishCurrentFile(): Promise<void> {
     let noteToPublish: PublishableNote | null = null;
 
     try {
@@ -173,30 +173,68 @@ export default class HugoGithubPublisherPlugin
     }
   }
 
-  private async republishNotes(): Promise<void> {
-    // Get the current active file
-    const activeFile = this.app.workspace.getActiveFile();
-    if (!activeFile) {
-      new Notice('No active file to republish.');
-      return;
-    }
-
-    // Check if the current file is trackable (has publish: true)
-    const allTrackedNotes = this.tracker.getTrackedNotes();
-    const noteToRepublish = allTrackedNotes.find(note => note.file.path === activeFile.path);
-
-    if (!noteToRepublish) {
-      new Notice('Current file is not publishable. Add "publish: true" to frontmatter.');
-      return;
-    }
-
+  async publishAllNotes(): Promise<void> {
     try {
-      // Force republish by calling publishNotes (which now handles current file)
-      await this.publishNotes();
-      new Notice(`Successfully republished: ${noteToRepublish.file.name}`);
+      // Get all tracked notes marked for publishing
+      const allTrackedNotes = this.tracker.getTrackedNotes(); // Get all marked files, not just modified ones
+
+      if (allTrackedNotes.length === 0) {
+        new Notice('No marked files found for publishing.');
+        return;
+      }
+
+      const filesToPublish = [];
+      const notesToUpdate = [];
+
+      // Process each tracked note
+      for (const note of allTrackedNotes) {
+        try {
+          const content = await this.app.vault.read(note.file);
+          const originalFilename = note.file.name;
+          const safeFilename = this.converter.convertToSafeHugoFilename(originalFilename);
+          const hugoContent = this.converter.convertToHugoMarkdown(
+            content,
+            note.file.path,
+            originalFilename
+          );
+
+          filesToPublish.push({
+            path: safeFilename,
+            content: hugoContent,
+          });
+
+          notesToUpdate.push(note);
+        } catch (error) {
+          console.error(`Error processing note ${note.file.path}:`, error);
+          new Notice(`Error processing ${note.file.name}: ${error.message}`);
+        }
+      }
+
+      if (filesToPublish.length === 0) {
+        new Notice('No files could be processed for publishing.');
+        return;
+      }
+
+      // Publish all files to GitHub
+      const result = await this.github.pushToGithub(filesToPublish);
+
+      if (result) {
+        const event: PublicationEvent = {
+          timestamp: Date.now(),
+          branch: this.github.generateUniqueBranchName(),
+          status: 'success',
+        };
+
+        // Mark all notes as published
+        for (const note of notesToUpdate) {
+          this.tracker.markNoteAsPublished(note.file.path, event);
+        }
+
+        new Notice(`Successfully published ${filesToPublish.length} file(s) to GitHub`);
+      }
     } catch (error) {
-      console.error('Error republishing note:', error);
-      new Notice('Error republishing note: ' + error.message);
+      console.error('Error publishing all notes:', error);
+      new Notice(`Error publishing notes: ${error.message}`);
     }
   }
 }
